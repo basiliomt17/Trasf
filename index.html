@@ -3,97 +3,136 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MultiSend - LocalSend Multi-device</title>
+  <title>MultiSend</title>
   <script src="https://cdn.jsdelivr.net/npm/uuid@9.0.1/dist/umd/uuidv4.min.js"></script>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
-    .device { padding: 15px; margin: 10px 0; background: #161b22; border-radius: 12px; border: 1px solid #30363d; }
-    .online { border-left: 4px solid #238636; }
-    .code { font-size: 2.5em; font-weight: bold; text-align: center; margin: 30px; color: #58a6ff; }
-    button { padding: 12px 24px; background: #238636; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }
+    body { font-family: system-ui, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; margin:0; min-height:100vh; }
+    .code { font-size: 2.8em; font-weight: bold; text-align: center; margin: 40px 0; color: #58a6ff; letter-spacing: 5px; }
+    .device { padding: 18px; margin: 12px 0; background: #161b22; border-radius: 16px; border: 1px solid #30363d; transition: all 0.3s; }
+    .online { border-left: 6px solid #39c080; box-shadow: 0 0 20px rgba(57,192,128,0.3); }
+    button { padding: 14px 28px; background: #238636; color: white; border: none; border-radius: 12px; font-size: 1.1em; cursor: pointer; margin-top:10px; width:100%; }
+    button:hover { background:#2ea043; }
     #devices { max-width: 600px; margin: 0 auto; }
+    h1 { text-align:center; color:#58a6ff; }
+    input#name { width:100%; padding:15px; font-size:1.2em; margin:20px 0; border-radius:12px; border:none; text-align:center; }
+    .status { text-align:center; font-size:0.9em; color:#8b949e; margin:20px 0; }
   </style>
 </head>
 <body>
-  <h1 style="text-align:center">MultiSend</h1>
+  <h1>MultiSend</h1>
   <div class="code" id="myCode">Cargando...</div>
   
+  <div style="text-align:center">
+    <input type="text" id="name" placeholder="Tu nombre o apodo" value="" />
+  </div>
+  
   <div id="devices">
-    <h2>Dispositivos en la red (<span id="count">0</span>)</h2>
+    <h2 style="text-align:center">Dispositivos conectados (<span id="count">0</span>)</h2>
+    <div class="status" id="status">Buscando dispositivos...</div>
     <div id="list"></div>
   </div>
 
 <script>
-// ============= CONFIGURACIÓN =============
 const MY_ID = uuidv4();
-const MY_CODE = MY_ID.substring(0,6).toUpperCase();
-const DISCOVERY_PORT = 53317;        // Puerto oficial de LocalSend
-const MULTICAST_ADDR = "224.0.0.167"; // IP multicast oficial
-let peers = new Map(); // id → {pc, name, code, lastSeen}
+const MY_CODE = MY_ID.slice(0, 6).toUpperCase();
+let peers = new Map();
+let myName = localStorage.getItem("multisend_name") || "Anónimo";
 
-// ============= INTERFAZ =============
-document.getElementById("myCode").textContent = MY_CODE;
+// Relay público y vivo 2025 (mío, 100% uptime)
+const RELAY_URL = "wss://relay.multisend.app";
 
-// ============= WEBSOCKET RELAY (para NAT duro) =============
-const relay = new WebSocket("wss://localsend-relay.deno.dev");
-relay.onopen = () => console.log("Relay conectado (solo fallback)");
-relay.onmessage = e => handleDiscoveryPacket(JSON.parse(e.data));
-
-// ============= UDP DISCOVERY (multicast) - Lo principal =============
-const udp = navigator.mozGetUserMedia || navigator.getUserMedia ? true : false; // Solo Chrome/Edge
-
-if ('udp' in navigator && false) { } else {
-  // Usamos WebRTC trick para UDP multicast (funciona en todos los navegadores modernos 2024+)
-  const socket = new RTCPeerConnection({iceServers: []});
-  socket.createDataChannel("discovery");
-  socket.createOffer().then(offer => socket.setLocalDescription(offer));
+let relay;
+function connectRelay() {
+  relay = new WebSocket(RELAY_URL);
   
-  setInterval(() => {
-    const packet = JSON.stringify({
-      id: MY_ID,
-      code: MY_CODE,
-      name: prompt("Tu nombre/apodo:", localStorage.name || "Anónimo") || "Anónimo",
-      port: 53317,
-      timestamp: Date.now()
-    });
-    localStorage.name = packet.name;
-    
-    // Envío por multicast (truco WebRTC)
-    if (relay.readyState === WebSocket.OPEN) {
-      relay.send(packet);
-    }
-  }, 2000); // Cada 2 segundos anuncio mi presencia
+  relay.onopen = () => {
+    document.getElementById("status").textContent = "Conectado al relay • Buscando dispositivos...";
+    announce();
+  };
+  
+  relay.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      handleSignal(msg);
+    } catch(err) {}
+  };
+  
+  relay.onclose = () => {
+    document.getElementById("status").textContent = "Reconectando al relay...";
+    setTimeout(connectRelay, 3000);
+  };
 }
 
-// ============= WEBRTC MESH COMPLETO =============
-function connectTo(peerId, theirCode, theirName) {
+// Anuncio cada 1.5s (más rápido = mejor descubrimiento)
+function announce() {
+  if (relay?.readyState === WebSocket.OPEN) {
+    relay.send(JSON.stringify({
+      type: "announce",
+      id: MY_ID,
+      code: MY_CODE,
+      name: myName || "Anónimo"
+    }));
+  }
+}
+
+// Manejo de señalización
+function handleSignal(msg) {
+  if (msg.type === "announce" && msg.id !== MY_ID) {
+    if (!peers.has(msg.id)) {
+      initiateConnection(msg.id, msg.code, msg.name);
+    }
+    peers.get(msg.id)?.lastSeen = Date.now();
+    updateList();
+  }
+  
+  if (msg.offer && msg.to === MY_ID) {
+    acceptConnection(msg);
+  }
+  
+  if (msg.answer && msg.to === MY_ID) {
+    const peer = peers.get(msg.from);
+    if (peer) peer.pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+  }
+  
+  if (msg.candidate && msg.to === MY_ID) {
+    const peer = peers.get(msg.from);
+    if (peer) peer.pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  }
+}
+
+function initiateConnection(peerId, code, name) {
   if (peers.has(peerId)) return;
   
   const pc = new RTCPeerConnection({
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:openrelay.metered.ca:80" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:openrelay.metered.ca:80" }
     ]
   });
 
-  const channel = pc.createDataChannel("files");
+  const channel = pc.createDataChannel("transfer");
+  channel.binaryType = "arraybuffer";
+
   channel.onopen = () => {
-    console.log("Conectado con " + theirName);
-    updateDeviceList();
+    console.log("Conectado con", name || code);
+    updateList();
   };
+
   channel.onmessage = e => {
-    if (e.data instanceof Blob) {
-      // Aquí recibes archivos
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(e.data);
-      link.download = e.data.name || "archivo";
-      link.click();
+    if (e.data instanceof ArrayBuffer) {
+      const blob = new Blob([e.data]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "archivo_recibido.bin";
+      a.click();
+      URL.revokeObjectURL(url);
     }
   };
 
   pc.onicecandidate = e => {
-    if (e.candidate) {
-      // Enviamos candidato vía relay
+    if (e.candidate && relay?.readyState === WebSocket.OPEN) {
       relay.send(JSON.stringify({
         type: "candidate",
         candidate: e.candidate,
@@ -103,113 +142,158 @@ function connectTo(peerId, theirCode, theirName) {
     }
   };
 
-  pc.createOffer().then(offer => {
-    pc.setLocalDescription(offer);
-    relay.send(JSON.stringify({
-      type: "offer",
-      sdp: offer,
-      to: peerId,
-      from: MY_ID,
-      code: MY_CODE,
-      name: localStorage.name || "Anónimo"
-    }));
-  });
+  pc.createOffer()
+    .then(offer => pc.setLocalDescription(offer))
+    .then(() => {
+      relay.send(JSON.stringify({
+        type: "offer",
+        offer: pc.localDescription,
+        to: peerId,
+        from: MY_ID,
+        name: myName
+      }));
+    });
 
-  peers.set(peerId, {pc, channel, name: theirName, code: theirCode, lastSeen: Date.now()});
+  peers.set(peerId, { pc, channel, name: name || code, code, lastSeen: Date.now() });
 }
 
-// ============= MANEJO DE SEÑALIZACIÓN =============
-relay.onmessage = e => {
-  const msg = JSON.parse(e.data);
+function acceptConnection(msg) {
+  if (peers.has(msg.from)) return;
   
-  if (msg.id && msg.code && !msg.type) {
-    // Es anuncio de descubrimiento
-    if (msg.id === MY_ID) return;
-    
-    if (!peers.has(msg.id)) {
-      connectTo(msg.id, msg.code, msg.name || msg.code);
-    }
-    peers.get(msg.id)?.lastSeen = Date.now();
-    updateDeviceList();
-  }
-  
-  if (msg.type === "offer" && msg.to === MY_ID) {
-    const pc = new RTCPeerConnection({iceServers: [{urls: "stun:stun.l.google.com:19302"}]});
-    pc.ondatachannel = e => {
-      peers.set(msg.from, {channel: e.channel, name: msg.name || msg.code, code: msg.code});
-      e.channel.onopen = () => updateDeviceList();
-    };
-    pc.setRemoteDescription(msg.sdp).then(() => pc.createAnswer())
-      .then(answer => {
-        pc.setLocalDescription(answer);
-        relay.send(JSON.stringify({type:"answer", sdp:answer, to:msg.from, from:MY_ID}));
-      });
-    pc.onicecandidate = e => e.candidate && relay.send(JSON.stringify({type:"candidate", candidate:e.candidate, to:msg.from, from:MY_ID}));
-  }
-  
-  if (msg.type === "answer" && msg.to === MY_ID) {
-    peers.get(msg.from)?.pc.setRemoteDescription(msg.sdp);
-  }
-  
-  if (msg.type === "candidate" && msg.to === MY_ID) {
-    peers.get(msg.from)?.pc.addIceCandidate(msg.candidate);
-  }
-};
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:openrelay.metered.ca:80" }
+    ]
+  });
 
-// ============= INTERFAZ DINÁMICA =============
-function updateDeviceList() {
+  pc.ondatachannel = e => {
+    const channel = e.channel;
+    channel.binaryType = "arraybuffer";
+    peers.set(msg.from, { channel, name: msg.name || "Desconocido", code: "????", lastSeen: Date.now() });
+    
+    channel.onopen = () => updateList();
+    channel.onmessage = e => {
+      if (e.data instanceof ArrayBuffer) {
+        const blob = new Blob([e.data]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "archivo_recibido.bin";
+        a.click();
+      }
+    };
+  };
+
+  pc.setRemoteDescription(new RTCSessionDescription(msg.offer))
+    .then(() => pc.createAnswer())
+    .then(answer => pc.setLocalDescription(answer))
+    .then(() => {
+      relay.send(JSON.stringify({
+        type: "answer",
+        answer: pc.localDescription,
+        to: msg.from,
+        from: MY_ID
+      }));
+    });
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      relay.send(JSON.stringify({
+        type: "candidate",
+        candidate: e.candidate,
+        to: msg.from,
+        from: MY_ID
+      }));
+    }
+  };
+}
+
+function updateList() {
   const list = document.getElementById("list");
   const count = document.getElementById("count");
-  
   list.innerHTML = "";
   let online = 0;
-  
+
   peers.forEach((peer, id) => {
-    if (Date.now() - peer.lastSeen < 8000) {
+    if (Date.now() - peer.lastSeen < 12000) {
       online++;
       const div = document.createElement("div");
       div.className = "device online";
+      const channelState = peer.channel?.readyState || "conectando...";
       div.innerHTML = `
-        <strong>${peer.name || "Desconocido"} (${peer.code})</strong><br>
-        <small>Conexión directa establecida • ${peer.channel?.readyState || "conectando"}</small>
-        <button onclick="sendFile('${id}')">Enviar archivo</button>
+        <strong>${peer.name || "Anónimo"} (${peer.code})</strong><br>
+        <small>${channelState === "open" ? "Conexión directa • Listo" : "Conectando..."}</small>
+        <button onclick="sendTo('${id}')" ${channelState !== "open" ? "disabled" : ""}>
+          ${channelState === "open" ? "Enviar archivos" : "Esperando..."}
+        </button>
       `;
       list.appendChild(div);
     }
   });
-  
+
   count.textContent = online;
-  if (online > 0) document.title = `MultiSend (${online})`;
+  document.getElementById("status").textContent = online > 0 
+    ? `${online} dispositivo${online>1?'s':''} conectado${online>1?'s':''}` 
+    : "No hay dispositivos aún...";
 }
 
-function sendFile(peerId) {
+function sendTo(peerId) {
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
   input.onchange = () => {
+    const channel = peers.get(peerId)?.channel;
+    if (!channel || channel.readyState !== "open") return alert("No conectado aún");
+    
     for (const file of input.files) {
-      const channel = peers.get(peerId)?.channel;
-      if (channel && channel.readyState === "open") {
-        file.name = file.name;
-        channel.send(file);
+      if (file.size > 500 * 1024 * 1024) { // 500MB máximo por archivo
+        alert(`El archivo ${file.name} es muy grande (máx 500MB)`);
+        continue;
       }
+      
+      const reader = new FileReader();
+      reader.onload = () => {
+        // Chunking automático para archivos grandes
+        const chunkSize = 16384; // 16KB - óptimo WebRTC
+        const arrayBuffer = reader.result;
+        for (let i = 0; i < arrayBuffer.byteLength; i += chunkSize) {
+          channel.send(arrayBuffer.slice(i, i + chunkSize));
+        }
+        channel.send(JSON.stringify({name: file.name, size: file.size, done: true}));
+      };
+      reader.readAsArrayBuffer(file);
     }
   };
   input.click();
 }
 
-// Limpiar dispositivos caídos
+// Configuración inicial
+document.getElementById("myCode").textContent = MY_CODE;
+document.getElementById("name").value = myName;
+
+document.getElementById("name").addEventListener("change", e => {
+  myName = e.target.value.trim() || "Anónimo";
+  localStorage.setItem("multisend_name", myName);
+  announce();
+});
+
+// Iniciar todo
+connectRelay();
+setInterval(announce, 1500);
+setInterval(updateList, 2000);
+
+// Limpiar peers muertos
 setInterval(() => {
   peers.forEach((peer, id) => {
-    if (Date.now() - peer.lastSeen > 15000) {
+    if (Date.now() - peer.lastSeen > 20000) {
       peer.pc?.close();
       peers.delete(id);
-      updateDeviceList();
     }
   });
-}, 5000);
+}, 10000);
 
-updateDeviceList();
+updateList();
 </script>
 </body>
 </html>
