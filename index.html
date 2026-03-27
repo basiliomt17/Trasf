@@ -3,208 +3,559 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LocalShare Web</title>
-  <script src="https://cdn.jsdelivr.net/npm/uuid@9.0.1/dist/umd/uuidv4.min.js"></script>
+  <title>MultiSend</title>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
-    body {font-family: system-ui, sans-serif; background:#000; color:#fff; margin:0; padding:20px; min-height:100vh;}
-    h1 {text-align:center; color:#00ff9d;}
-    .code {font-size:3em; text-align:center; margin:30px; letter-spacing:8px; color:#00ff9d; font-weight:bold;}
-    .device {background:#111; padding:20px; margin:15px 0; border-radius:16px; border-left:6px solid #00ff9d;}
-    button {background:#00ff9d; color:#000; border:none; padding:16px; border-radius:12px; font-size:1.2em; width:100%; margin-top:10px; font-weight:bold;}
-    #list {max-width:600px; margin:0 auto;}
-    input#name {width:100%; padding:16px; font-size:1.3em; text-align:center; border:none; border-radius:12px; margin:20px 0;}
-    .status {text-align:center; color:#00ff9d; font-size:1.1em; margin:20px;}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      background:#0d1117;color:#e6edf3;min-height:100vh;
+      padding:12px;
+    }
+    .container{max-width:540px;margin:0 auto}
+    header{text-align:center;padding:18px 0}
+    header h1{
+      font-size:1.6em;
+      background:linear-gradient(135deg,#58a6ff,#3fb950);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+      background-clip:text;
+    }
+    header small{color:#8b949e;font-size:.85em}
+    .card{
+      background:#161b22;border:1px solid #30363d;
+      border-radius:12px;padding:18px;margin-bottom:14px;
+    }
+    .section-title{
+      font-size:.8em;color:#8b949e;text-transform:uppercase;
+      letter-spacing:1px;margin-bottom:10px;
+    }
+
+    /* Código propio */
+    .my-code-display{text-align:center;padding:8px 0}
+    .my-code-display .code{
+      font-size:2.6em;font-weight:800;letter-spacing:10px;
+      color:#58a6ff;cursor:pointer;user-select:all;
+      transition:color .2s;
+    }
+    .my-code-display .code:hover{color:#79c0ff}
+    .my-code-display .code.copied{color:#3fb950}
+    .status-line{
+      margin-top:8px;font-size:.85em;color:#8b949e;
+      display:flex;align-items:center;justify-content:center;gap:6px;
+    }
+    .dot{
+      width:8px;height:8px;border-radius:50%;
+      display:inline-block;flex-shrink:0;
+    }
+    .dot-online{background:#3fb950}
+    .dot-offline{background:#f85149}
+    .dot-connecting{background:#d29922;animation:pulse 1s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+    /* Formulario conectar */
+    .connect-row{display:flex;gap:8px}
+    .connect-row input{
+      flex:1;padding:11px 14px;background:#0d1117;
+      border:1px solid #30363d;border-radius:8px;
+      color:#e6edf3;font-size:1.1em;text-transform:uppercase;
+      letter-spacing:5px;text-align:center;
+      font-family:monospace;
+    }
+    .connect-row input::placeholder{
+      letter-spacing:1px;text-transform:none;font-family:inherit;
+      font-size:.85em;
+    }
+    .connect-row input:focus{outline:none;border-color:#58a6ff}
+
+    /* Botones */
+    .btn{
+      padding:10px 18px;border:none;border-radius:8px;
+      font-size:.9em;cursor:pointer;font-weight:600;
+      transition:all .15s;display:inline-flex;align-items:center;gap:6px;
+    }
+    .btn:active{transform:scale(.97)}
+    .btn-primary{background:#238636;color:#fff}
+    .btn-primary:hover{background:#2ea043}
+    .btn-primary:disabled{background:#1a1e24;color:#484f58;cursor:not-allowed}
+    .btn-secondary{background:#21262d;color:#e6edf3;border:1px solid #30363d}
+    .btn-secondary:hover{background:#30363d}
+    .btn-danger{background:transparent;color:#f85149;border:1px solid #f8514933}
+    .btn-danger:hover{background:#f8514922}
+    .btn-sm{padding:7px 12px;font-size:.8em}
+
+    /* Dispositivos */
+    .device-item{
+      background:#0d1117;border:1px solid #30363d;
+      border-radius:10px;padding:14px;margin-top:10px;
+    }
+    .device-header{
+      display:flex;align-items:center;gap:10px;margin-bottom:10px;
+    }
+    .device-icon{font-size:1.5em}
+    .device-info{flex:1}
+    .device-code{font-weight:700;font-size:1.05em;letter-spacing:2px;font-family:monospace}
+    .device-state{font-size:.78em;color:#8b949e;margin-top:2px;display:flex;align-items:center;gap:4px}
+    .device-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .empty-state{
+      text-align:center;padding:20px;color:#484f58;
+      font-size:.9em;line-height:1.6;
+    }
+
+    /* Transferencias */
+    .transfer-item{
+      background:#0d1117;border-radius:8px;
+      padding:12px;margin-top:8px;
+    }
+    .transfer-name{font-weight:600;font-size:.9em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .progress-bar{
+      width:100%;height:6px;background:#21262d;
+      border-radius:3px;overflow:hidden;
+    }
+    .progress-fill{
+      height:100%;border-radius:3px;transition:width .2s;
+      background:linear-gradient(90deg,#58a6ff,#3fb950);
+    }
+    .transfer-meta{
+      display:flex;justify-content:space-between;
+      font-size:.75em;color:#8b949e;margin-top:4px;
+    }
+
+    /* Recibidos */
+    .received-item{
+      background:#0d1117;border-radius:8px;padding:12px;
+      margin-top:8px;display:flex;align-items:center;gap:10px;
+    }
+    .received-item .info{flex:1;min-width:0}
+    .received-item .fname{font-weight:600;font-size:.9em;word-break:break-all}
+    .received-item .fmeta{font-size:.75em;color:#8b949e;margin-top:2px}
+    .received-text{
+      background:#0d1117;border-radius:8px;padding:12px;margin-top:8px;
+    }
+    .received-text pre{
+      white-space:pre-wrap;word-break:break-word;
+      max-height:150px;overflow-y:auto;font-size:.85em;
+      margin:8px 0;color:#c9d1d9;font-family:inherit;
+    }
+
+    /* Modal texto */
+    .modal-bg{
+      display:none;position:fixed;inset:0;
+      background:rgba(0,0,0,.65);z-index:100;
+      align-items:center;justify-content:center;padding:20px;
+    }
+    .modal-bg.active{display:flex}
+    .modal-box{
+      background:#161b22;border:1px solid #30363d;
+      border-radius:12px;padding:22px;width:100%;max-width:420px;
+    }
+    .modal-box h3{margin-bottom:4px}
+    .modal-box textarea{
+      width:100%;min-height:100px;background:#0d1117;
+      border:1px solid #30363d;border-radius:8px;
+      color:#e6edf3;padding:12px;font-size:.95em;
+      resize:vertical;margin:12px 0;font-family:inherit;
+    }
+    .modal-box textarea:focus{outline:none;border-color:#58a6ff}
+    .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+
+    /* Drag overlay */
+    .drop-zone{
+      display:none;position:fixed;inset:0;z-index:90;
+      background:rgba(56,166,255,.08);
+      border:3px dashed #58a6ff;
+      align-items:center;justify-content:center;
+      font-size:1.3em;color:#58a6ff;font-weight:600;
+    }
+    .drop-zone.active{display:flex}
+
+    /* Toast */
+    .toast-container{
+      position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+      z-index:200;display:flex;flex-direction:column;gap:6px;
+      align-items:center;pointer-events:none;
+    }
+    .toast{
+      background:#21262d;color:#e6edf3;padding:10px 20px;
+      border-radius:8px;font-size:.88em;font-weight:500;
+      border:1px solid #30363d;
+      animation:toastIn .3s ease,toastOut .4s ease 2.6s forwards;
+      pointer-events:auto;
+    }
+    .toast.success{border-color:#238636;background:#23863622}
+    .toast.error{border-color:#f85149;background:#f8514922}
+    @keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+    @keyframes toastOut{to{opacity:0;transform:translateY(-8px)}}
+
+    @media(max-width:480px){
+      .my-code-display .code{font-size:2em;letter-spacing:6px}
+      .device-actions{gap:4px}
+      .btn-sm{padding:6px 10px;font-size:.75em}
+    }
   </style>
 </head>
 <body>
-  <h1>LocalShare Web</h1>
-  <div class="code" id="code">······</div>
-  <input type="text" id="name" placeholder="Tu nombre (opcional)" value="">
-  <div class="status" id="status">Iniciando descubrimiento local...</div>
-  
-  <div id="list"></div>
+
+<!-- Overlay de drag & drop -->
+<div class="drop-zone" id="dropZone">📁 Soltar para enviar a todos</div>
+
+<!-- Modal de texto -->
+<div class="modal-bg" id="textModal">
+  <div class="modal-box">
+    <h3>📝 Enviar texto</h3>
+    <small style="color:#8b949e">Se copiará al portapapeles del otro dispositivo</small>
+    <textarea id="textInput" placeholder="Escribí o pegá el texto acá..."></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTextModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitText()">Enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toast-container" id="toasts"></div>
+
+<div class="container">
+  <header>
+    <h1>📡 MultiSend</h1>
+    <small>Transferencia P2P multi-dispositivo</small>
+  </header>
+
+  <!-- Mi código -->
+  <div class="card">
+    <div class="section-title">Tu código de conexión</div>
+    <div class="my-code-display">
+      <div class="code" id="myCode" onclick="copyMyCode()" title="Clic para copiar">· · ·</div>
+      <div class="status-line" id="statusLine">
+        <span class="dot dot-connecting"></span>
+        <span id="statusText">Iniciando...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Conectar -->
+  <div class="card">
+    <div class="section-title">Conectar dispositivo</div>
+    <div class="connect-row">
+      <input type="text" id="codeInput" placeholder="Código"
+             maxlength="6" autocomplete="off" spellcheck="false"
+             oninput="this.value=this.value.toUpperCase().replace(/[^A-Z2-9]/g,'')"
+             onkeydown="if(event.key==='Enter')doConnect()">
+      <button class="btn btn-primary" id="connectBtn" onclick="doConnect()" disabled>
+        Conectar
+      </button>
+    </div>
+  </div>
+
+  <!-- Dispositivos -->
+  <div class="card">
+    <div class="section-title">
+      Dispositivos conectados (<span id="devCount">0</span>)
+    </div>
+    <div id="deviceList">
+      <div class="empty-state">
+        Abrí esta página en otro dispositivo<br>
+        y compartí tu código o ingresá el de ellos
+      </div>
+    </div>
+  </div>
+
+  <!-- Transferencias -->
+  <div class="card" id="transfersCard" style="display:none">
+    <div class="section-title">📊 Transferencias</div>
+    <div id="transferList"></div>
+  </div>
+
+  <!-- Recibidos -->
+  <div class="card" id="receivedCard" style="display:none">
+    <div class="section-title">📥 Recibido</div>
+    <div id="receivedList"></div>
+  </div>
+</div>
 
 <script>
-// ========= CONFIG =========
-const MY_ID = uuidv4();
-const MY_CODE = MY_ID.slice(0,6).toUpperCase();
-document.getElementById("code").textContent = MY_CODE;
+// ===========================================================
+//  CONSTANTES Y ESTADO GLOBAL
+// ===========================================================
+const CHUNK    = 64 * 1024;           // 64 KB por chunk
+const PREFIX   = 'msend-';            // Prefijo para IDs de PeerJS
+const CHARS    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Sin 0,O,1,I
 
-let peers = new Map();
-let myName = localStorage.getItem("name") || "";
-document.getElementById("name").value = myName;
+const myCode   = makeCode(6);
+const myPeerId = PREFIX + myCode;
 
-const PORT = 53317;
-let socket;
+const conns       = new Map();  // code → { conn, status, inFile, chunks[], received }
+const transfers   = new Map();  // id   → { name, size, progress, total, dir, code, done }
+const rxFiles     = [];         // archivos recibidos [{name,size,url,from}]
+let   textTarget  = null;       // código destino del modal de texto
+let   peer        = null;       // instancia PeerJS
 
-// ========= mDNS + UDP REAL (funciona en el 99% de redes WiFi) =========
-if ('chrome' in window || navigator.userAgent.includes('Edg')) {
-  // Chrome/Edge: usamos socket UDP real
-  chrome.sockets.udp.onReceive.addListener(onReceive);
-  chrome.sockets.udp.create({}, info => {
-    socket = info.socketId;
-    chrome.sockets.udp.bind(socket, "0.0.0.0", PORT, () => {
-      chrome.sockets.udp.joinGroup(socket, "224.0.0.167", () => {
-        document.getElementById("status").textContent = "Escuchando en red local...";
-        broadcast();
-        setInterval(broadcast, 1500);
-      });
-    });
+// ===========================================================
+//  UTILIDADES
+// ===========================================================
+function makeCode(len) {
+  const buf = new Uint8Array(len);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, b => CHARS[b % CHARS.length]).join('');
+}
+
+function makeId() {
+  return (crypto.randomUUID ? crypto.randomUUID() : 
+    Math.random().toString(36) + Date.now().toString(36)).substring(0, 12);
+}
+
+function fmtSize(b) {
+  if (b === 0) return '0 B';
+  const u = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(b) / Math.log(1024));
+  return (b / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
+function escHtml(s) {
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function setStatus(dot, text) {
+  document.getElementById('statusLine').innerHTML =
+    `<span class="dot dot-${dot}"></span><span>${text}</span>`;
+}
+
+function copyMyCode() {
+  navigator.clipboard?.writeText(myCode);
+  const el = document.getElementById('myCode');
+  el.classList.add('copied'); el.textContent = '✓ Copiado';
+  setTimeout(() => { el.classList.remove('copied'); el.textContent = myCode; }, 1200);
+}
+
+// Convierte lo que sea a Uint8Array (robusto con PeerJS)
+function asBytes(data) {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  return new Uint8Array(data); // Array de números, etc.
+}
+
+// Pequeña espera (para control de flujo)
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ===========================================================
+//  PEERJS – INICIALIZACIÓN
+// ===========================================================
+function initPeer() {
+  peer = new Peer(myPeerId, {
+    debug: 0,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+      ]
+    }
   });
-} else {
-  // Firefox, Safari, móviles → usamos WebRTC trick + BroadcastChannel como fallback
-  const bc = new BroadcastChannel("localshare");
-  bc.onmessage = e => handlePacket(e.data);
-  
-  setInterval(() => {
-    const packet = {id: MY_ID, code: MY_CODE, name: myName || "Anónimo", ts: Date.now()};
-    bc.postMessage(packet);
-    handlePacket(packet); // también nos vemos nosotros mismos
-  }, 1500);
-  
-  document.getElementById("status").textContent = "Usando modo compatibilidad (funciona igual)";
-}
 
-// ========= ENVÍO POR UDP (Chrome) =========
-function broadcast() {
-  if (!socket) return;
-  const packet = JSON.stringify({
-    id: MY_ID,
-    code: MY_CODE,
-    name: myName || "Anónimo",
-    ts: Date.now()
+  peer.on('open', () => {
+    document.getElementById('myCode').textContent = myCode;
+    document.getElementById('connectBtn').disabled = false;
+    setStatus('online', 'En línea — compartí tu código');
   });
-  const encoder = new TextEncoder();
-  chrome.sockets.udp.send(socket, encoder.encode(packet), "224.0.0.167", PORT);
+
+  peer.on('connection', conn => onIncoming(conn));
+
+  peer.on('error', err => {
+    console.warn('PeerJS:', err.type, err);
+    if (err.type === 'peer-unavailable') {
+      toast('Dispositivo no encontrado. Verificá el código.', 'error');
+    } else if (err.type === 'unavailable-id') {
+      toast('Código ya en uso. Recargá la página.', 'error');
+    } else {
+      setStatus('offline', 'Error de conexión');
+      setTimeout(() => { if (!peer.destroyed) peer.reconnect(); }, 4000);
+    }
+  });
+
+  peer.on('disconnected', () => {
+    setStatus('connecting', 'Reconectando...');
+    setTimeout(() => { if (peer && !peer.destroyed) peer.reconnect(); }, 3000);
+  });
 }
 
-function onReceive(info) {
-  const decoder = new TextDecoder();
-  const packet = JSON.parse(decoder.decode(info.data));
-  handlePacket(packet);
+// ===========================================================
+//  CONEXIONES
+// ===========================================================
+function doConnect() {
+  const input = document.getElementById('codeInput');
+  const code  = input.value.trim().toUpperCase();
+
+  if (code.length < 4) return toast('Código muy corto', 'error');
+  if (code === myCode)  return toast('Ese es tu propio código', 'error');
+  if (conns.has(code))  return toast('Ya conectado a ' + code, 'error');
+
+  const conn = peer.connect(PREFIX + code, { reliable: true });
+  wireConn(conn, code, 'out');
+  input.value = '';
 }
 
-// ========= MANEJO DE PAQUETES =========
-function handlePacket(p) {
-  if (p.id === MY_ID) return;
-  if (Date.now() - p.ts > 10000) return;
-  
-  if (!peers.has(p.id)) {
-    connectViaWebRTC(p.id, p.code, p.name);
+function onIncoming(conn) {
+  const code = conn.peer.replace(PREFIX, '');
+  if (conns.has(code) && conns.get(code).status === 'open') {
+    conn.close(); return;                    // duplicada
   }
-  peers.get(p.id).lastSeen = Date.now();
-  updateList();
+  wireConn(conn, code, 'in');
 }
 
-// ========= WebRTC MESH (sin relay externo) =========
-function connectViaWebRTC(id, code, name) {
-  const pc = new RTCPeerConnection({
-    iceServers: [{urls: "stun:stun.l.google.com:19302"}]
+function wireConn(conn, code, dir) {
+  const entry = {
+    conn, status: 'connecting', dir,
+    inFile: null, chunks: [], received: 0
+  };
+  conns.set(code, entry);
+  renderDevices();
+
+  conn.on('open', () => {
+    entry.status = 'open';
+    conn.send({ type: 'hello', code: myCode });
+    renderDevices();
+    toast('Conectado con ' + code, 'success');
   });
 
-  const channel = pc.createDataChannel("files");
-  channel.onopen = () => updateList();
-  channel.onmessage = e => receiveFile(e.data);
+  conn.on('data',  data => onData(data, code));
+  conn.on('close', ()   => { conns.delete(code); renderDevices(); toast(code + ' desconectado'); });
+  conn.on('error', ()   => { conns.delete(code); renderDevices(); });
+}
 
-  pc.onicecandidate = e => {
-    if (e.candidate) return; // sin relay → ignoramos candidatos externos
-  };
+function disconnectPeer(code) {
+  const e = conns.get(code);
+  if (e) { e.conn.close(); conns.delete(code); renderDevices(); }
+}
 
-  pc.createOffer()
-    .then(offer => pc.setLocalDescription(offer))
-    .then(() => {
-      // Guardamos la oferta en localStorage temporal (truco LAN)
-      const offers = JSON.parse(localStorage.getItem("offers") || "{}");
-      offers[id] = {sdp: pc.localDescription, from: MY_ID, name: myName};
-      localStorage.setItem("offers", JSON.stringify(offers));
-    });
+// ===========================================================
+//  PROTOCOLO DE MENSAJES
+// ===========================================================
+function onData(data, from) {
+  if (!data || typeof data !== 'object') return;
+  const entry = conns.get(from);
+  if (!entry) return;
 
-  // Revisamos ofertas entrantes
-  setInterval(() => {
-    const offers = JSON.parse(localStorage.getItem("offers") || "{}");
-    if (offers[MY_ID] && !peers.has(offers[MY_ID].from)) {
-      answerOffer(offers[MY_ID]);
-      delete offers[MY_ID];
-      localStorage.setItem("offers", JSON.stringify(offers));
+  switch (data.type) {
+
+    case 'hello': break;        // handshake
+
+    // ---- Archivos ----
+    case 'file-start': {
+      entry.inFile   = { id: data.id, name: data.name, size: data.size,
+                         mime: data.mime, total: data.total };
+      entry.chunks   = new Array(data.total);
+      entry.received = 0;
+      transfers.set(data.id, {
+        name: data.name, size: data.size,
+        progress: 0, total: data.total,
+        dir: 'down', code: from, done: false
+      });
+      renderTransfers();
+      break;
     }
-  }, 1000);
 
-  peers.set(id, {pc, channel, name, code, lastSeen: Date.now()});
-}
-
-function answerOffer(offerData) {
-  const pc = new RTCPeerConnection({iceServers: [{urls: "stun:stun.l.google.com:19302"}]});
-  pc.ondatachannel = e => {
-    e.channel.onmessage = msg => receiveFile(msg.data);
-    peers.set(offerData.from, {channel: e.channel, name: offerData.name || "??", code: "??"});
-  };
-
-  pc.setRemoteDescription(offerData.sdp)
-    .then(() => pc.createAnswer())
-    .then(answer => pc.setLocalDescription(answer));
-}
-
-function receiveFile(blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = blob.name || "archivo";
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ========= INTERFAZ =========
-function updateList() {
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-  let count = 0;
-
-  peers.forEach((p, id) => {
-    if (Date.now() - p.lastSeen < 10000) {
-      count++;
-      const div = document.createElement("div");
-      div.className = "device";
-      div.innerHTML = `
-        <strong>${p.name || "Anónimo"} (${p.code})</strong><br>
-        <small style="color:#00ff9d;">Conexión directa establecida</small>
-        <button onclick="sendFile('${id}')">ENVIAR ARCHIVOS</button>
-      `;
-      list.appendChild(div);
+    case 'file-chunk': {
+      if (!entry.inFile || data.fid !== entry.inFile.id) break;
+      entry.chunks[data.i] = asBytes(data.d);
+      entry.received++;
+      const t = transfers.get(data.fid);
+      if (t) { t.progress = entry.received; renderTransfers(); }
+      break;
     }
+
+    case 'file-end': {
+      if (!entry.inFile || data.id !== entry.inFile.id) break;
+      assembleFile(entry, from);
+      break;
+    }
+
+    // ---- Texto ----
+    case 'text': {
+      receiveText(from, data.content || '');
+      break;
+    }
+
+    case 'ping':
+      if (entry.conn.open) entry.conn.send({ type: 'pong' });
+      break;
+  }
+}
+
+// ===========================================================
+//  ENVÍO DE ARCHIVOS
+// ===========================================================
+function pickAndSend(code) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.multiple = true;
+  inp.onchange = async () => {
+    for (const f of inp.files) await sendFile(code, f);
+  };
+  inp.click();
+}
+
+async function sendFile(code, file) {
+  const entry = conns.get(code);
+  if (!entry || entry.status !== 'open') return toast('Sin conexión con ' + code, 'error');
+
+  const conn   = entry.conn;
+  const id     = makeId();
+  const total  = Math.ceil(file.size / CHUNK) || 1;
+
+  transfers.set(id, {
+    name: file.name, size: file.size,
+    progress: 0, total, dir: 'up', code, done: false
   });
+  renderTransfers();
 
-  document.getElementById("status").textContent = count > 0 
-    ? `${count} dispositivo${count>1?'s':''} conectado${count>1?'s':''} en la red`
-    : "Esperando dispositivos... (mismo WiFi)";
+  // 1) Inicio
+  conn.send({ type: 'file-start', id, name: file.name,
+              size: file.size, mime: file.type || 'application/octet-stream', total });
+
+  // 2) Chunks
+  for (let i = 0; i < total; i++) {
+    const start = i * CHUNK;
+    const slice = file.slice(start, Math.min(start + CHUNK, file.size));
+    const buf   = await slice.arrayBuffer();
+
+    conn.send({ type: 'file-chunk', fid: id, i, d: new Uint8Array(buf) });
+
+    const t = transfers.get(id);
+    if (t) { t.progress = i + 1; renderTransfers(); }
+
+    // Control de flujo simple
+    if (i % 8 === 7) await sleep(5);
+  }
+
+  // 3) Fin
+  conn.send({ type: 'file-end', id });
+
+  const t = transfers.get(id);
+  if (t) { t.done = true; renderTransfers(); }
+  toast('Enviado: ' + file.name, 'success');
 }
 
-// ========= ENVÍO =========
-function sendFile(id) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.multiple = true;
-  input.onchange = () => {
-    for (const file of input.files) {
-      const channel = peers.get(id)?.channel;
-      if (channel?.readyState === "open") {
-        channel.send(file);
-      } else {
-        alert("La conexión aún no está lista. Espera unos segundos.");
-      }
-    }
-  };
-  input.click();
-}
+// ===========================================================
+//  RECEPCIÓN DE ARCHIVOS
+// ===========================================================
+function assembleFile(entry, from) {
+  const f = entry.inFile;
 
-// ========= GUARDAR NOMBRE =========
-document.getElementById("name").addEventListener("change", e => {
-  myName = e.target.value.trim() || "Anónimo";
-  localStorage.setItem("name", myName);
-});
+  // Unir chunks
+  let totalBytes = 0;
+  for (const c of entry.chunks) totalBytes += c ? c.byteLength : 0;
+  const merged = new Uint8Array(totalBytes);
+  let off = 0;
+  for (const c of entry.chunks) {
+    if (c) { merged.set(c, off); off += c.byteLength; }
+  }
 
-// Iniciar
-setInterval(updateList, 2000);
-updateList();
-</script>
-</body>
-</html>
+  const blob = new Blob([merged], { type: f.mime });
+  
